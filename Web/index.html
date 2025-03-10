@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LightWheel</title>
+    <style>
+      canvas {
+        width: 100%;
+        height: 1em;
+        display: block;
+        margin-top: 1em;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <button id="connect">Connect</button>
+
+      <canvas
+        id="ledCanvas"
+        width="1"
+        height="1"
+        style="border: 1px solid black"
+      ></canvas>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+
+    <script>
+      const LED_COUNT = 241;
+
+      const HEADER = new Uint8Array([0xaa, 0xaa]);
+      const FOOTER = new Uint8Array([0x55]);
+
+      class RenderManager {
+        scene;
+        camera;
+        renderer;
+        timeUniform;
+
+        canvas;
+        gl;
+
+        constructor() {
+          this.canvas = document.getElementById("ledCanvas");
+          this.canvas.width = LED_COUNT;
+          this.canvas.height = 1;
+
+          this.scene = new THREE.Scene();
+          this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+
+          this.renderer = new THREE.WebGLRenderer({
+            canvas: this.canvas,
+            antialias: true,
+          });
+          this.gl = this.renderer.getContext();
+
+          this.timeUniform = { value: 0 };
+
+          const shaderMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+              time: this.timeUniform,
+            },
+            vertexShader: `
+                  void main() {
+                      gl_Position = vec4(position, 1.0);
+                  }
+                `,
+            fragmentShader: `
+                  uniform float time;
+
+                  void main() {
+                      float r = 0.5 + 0.5 * sin(time + gl_FragCoord.x * 0.1);
+                      float g = 0.5 + 0.5 * sin(time + gl_FragCoord.x * 0.1 + 2.0);
+                      float b = 0.5 + 0.5 * sin(time + gl_FragCoord.x * 0.1 + 4.0);
+                      gl_FragColor = vec4(r, g, b, 1.0);
+                  }
+                `,
+          });
+
+          const geometry = new THREE.PlaneGeometry(2, 2);
+          const plane = new THREE.Mesh(geometry, shaderMaterial);
+
+          this.scene.add(plane);
+          this.camera.position.z = 2;
+        }
+
+        render(timestamp) {
+          this.timeUniform.value = timestamp * 0.01;
+          this.renderer.render(this.scene, this.camera);
+        }
+
+        getPixels() {
+          const width = this.canvas.width;
+          const height = this.canvas.height;
+
+          const rgbaData = new Uint8Array(width * height * 4);
+          const rgbData = new Uint8Array(width * height * 3);
+
+          // Read RGBA pixel data.
+          this.gl.readPixels(
+            0,
+            0,
+            width,
+            height,
+            this.gl.RGBA,
+            this.gl.UNSIGNED_BYTE,
+            rgbaData
+          );
+
+          // Convert RGBA to RGB.
+          for (let i = 0, j = 0; i < rgbaData.length; i += 4, j += 3) {
+            rgbData[j] = rgbaData[i];
+            rgbData[j + 1] = rgbaData[i + 1];
+            rgbData[j + 2] = rgbaData[i + 2];
+          }
+
+          return rgbData;
+        }
+      }
+
+      class SerialManger {
+        port;
+        writer;
+
+        constructor() {
+          this.port = null;
+          this.writer = null;
+        }
+
+        // async connect() {
+        //   try {
+        //     this.port = await navigator.serial.requestPort();
+        //     await this.port.open({ baudRate: 500000 });
+        //     this.writer = this.port.writable.getWriter();
+        //   } catch (err) {
+        //     console.error("Serial connection failed:", err);
+        //   }
+        // }
+
+        async connect() {
+          try {
+            this.port = await navigator.serial.getPorts().then((ports) => {
+              // No ports available, prompt user for permission.
+              if (!ports.length) {
+                return navigator.serial.requestPort();
+              }
+              // Port is available.
+              return ports[0];
+            });
+
+            if (this.port) {
+              await this.port.open({ baudRate: 500000 });
+              this.writer = this.port.writable.getWriter();
+              console.log(this.writer);
+            }
+          } catch (error) {
+            console.error("Error connecting to serial port:", error);
+          }
+        }
+
+        async write(data) {
+          if (!this.writer) return;
+
+          await this.writer.write(HEADER);
+
+          const CHUNK_SIZE = 1024;
+          for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+            const chunk = data.slice(i, Math.min(i + CHUNK_SIZE, data.length));
+            await this.writer.write(chunk);
+          }
+
+          await this.writer.write(FOOTER);
+        }
+      }
+
+      (async () => {
+        const renderManager = new RenderManager();
+        const serialManager = new SerialManger();
+
+        // Click handler.
+        document
+          .getElementById("connect")
+          .addEventListener("click", async () => {
+            try {
+              serialManager.connect();
+            } catch (err) {
+              console.error("Serial connection failed:", err);
+            }
+          });
+
+        // Animation loop.
+        const animate = async (timestamp) => {
+          renderManager.render(timestamp);
+          await serialManager.write(renderManager.getPixels());
+
+          requestAnimationFrame(animate);
+        };
+
+        // Start animation.
+        animate(0);
+      })();
+    </script>
+  </body>
+</html>
