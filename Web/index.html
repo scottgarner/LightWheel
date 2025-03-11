@@ -129,16 +129,6 @@
           this.writer = null;
         }
 
-        // async connect() {
-        //   try {
-        //     this.port = await navigator.serial.requestPort();
-        //     await this.port.open({ baudRate: 500000 });
-        //     this.writer = this.port.writable.getWriter();
-        //   } catch (err) {
-        //     console.error("Serial connection failed:", err);
-        //   }
-        // }
-
         async connect() {
           try {
             this.port = await navigator.serial.getPorts().then((ports) => {
@@ -151,7 +141,7 @@
             });
 
             if (this.port) {
-              await this.port.open({ baudRate: 500000 });
+              await this.port.open({ baudRate: 115200 });
               this.writer = this.port.writable.getWriter();
               console.log(this.writer);
             }

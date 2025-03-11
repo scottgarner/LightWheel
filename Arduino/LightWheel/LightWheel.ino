@@ -45,13 +45,7 @@ void setup() {
 
   // Serial setup.
   {
-    for (int i = 0; i < LED_COUNT; i++) {
-      if (i % 2 == 0)
-        leds[i].setRGB(255, 0, 0);
-      else
-        leds[i].setRGB(0, 255, 0);
-    }
-    FastLED.show();
+    Serial.begin(115200);
   }
 }
 
